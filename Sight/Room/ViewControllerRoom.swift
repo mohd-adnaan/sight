@@ -329,7 +329,7 @@ extension ViewControllerRoom{
         self.👨‍🔧.🏷(with: "endInference")
 
         if let predictions = request.results as? [VNRecognizedObjectObservation] {
-            let filteredPredictions = predictions.filter { $0.labels.first?.identifier == "435" && $0.confidence >= self.confidenceThreshold }
+            let filteredPredictions = predictions.filter { $0.labels.first?.identifier == "door" && $0.confidence >= self.confidenceThreshold }
 
             DispatchQueue.main.async {
                 self.shelterDetected = !filteredPredictions.isEmpty
