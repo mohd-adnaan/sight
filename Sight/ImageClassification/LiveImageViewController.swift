@@ -1,5 +1,3 @@
-
-
 import UIKit
 import Vision
 import AVFoundation
@@ -22,7 +20,7 @@ class LiveImageViewController: UIViewController {
     private let 👨‍🔧 = 📏()
     
     // MARK - Core ML model
-    let classificationModel = MobileNetV2Int8LUT()
+    lazy var classificationModel = { return try! FastViTT8F16Headless() }()
     
     // MARK: - Vision Properties
     var request: VNCoreMLRequest?
@@ -115,22 +113,6 @@ class LiveImageViewController: UIViewController {
     }
 }
 
-//// MARK: - VideoCaptureDelegate
-//extension LiveImageViewController: VideoCaptureDelegate {
-//    func videoCapture(_ capture: VideoCapture, didCaptureVideoFrame pixelBuffer: CVPixelBuffer?/*, timestamp: CMTime*/) {
-//        
-//        // 카메라에서 캡쳐된 화면은 pixelBuffer에 담김.
-//        // Vision 프레임워크에서는 이미지 대신 pixelBuffer를 바로 사용 가능
-//        if let pixelBuffer = pixelBuffer {
-//            // start of measure
-//            self.👨‍🔧.🎬👏()
-//            
-//            // start predict
-//            self.predictUsingVision(pixelBuffer: pixelBuffer)
-//        }
-//    }
-//}
-
 // MARK: - VideoCaptureDelegate
 extension LiveImageViewController: VideoCaptureDelegate {
     func videoCapture(_ capture: VideoCapture, didCaptureVideoFrame pixelBuffer: CVPixelBuffer?, timestamp: CMTime) {
@@ -172,12 +154,40 @@ extension LiveImageViewController {
     }
     
     func showClassificationResult(results: [VNClassificationObservation]) {
-        guard let result = results.first else {
+        // Filter only the highest confidence result
+        guard let topResult = results.max(by: { $0.confidence < $1.confidence }),
+              topResult.confidence > 0.3 else { // Minimum confidence threshold
             showFailResult()
             return
         }
         
-        showResults(objectLabel: result.identifier, confidence: result.confidence)
+        showResults(objectLabel: topResult.identifier, confidence: topResult.confidence)
+    }
+    
+    func showResults(objectLabel: String, confidence: VNConfidence) {
+        DispatchQueue.main.sync {
+            self.labelLabel.text = objectLabel
+            self.confidenceLabel.text = "\(round(confidence * 100)) %"
+            
+            let currentTime = Date()
+            let timeInterval = currentTime.timeIntervalSince(lastSpokenTime)
+            
+            // Only speak if label changed AND 3 seconds passed (increased from 1)
+            if objectLabel != lastSpokenLabel && timeInterval > 3.0 && confidence > 0.5 {
+                lastSpokenLabel = objectLabel
+                lastSpokenTime = currentTime
+                
+                if self.synthesizer.isSpeaking {
+                    self.synthesizer.stopSpeaking(at: .immediate)
+                }
+                
+                let utterance = AVSpeechUtterance(string: objectLabel)
+                utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+                utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+                
+                self.synthesizer.speak(utterance)
+            }
+        }
     }
     
     func showCustomResult(results: [VNCoreMLFeatureValueObservation]) {
@@ -195,53 +205,15 @@ extension LiveImageViewController {
             self.confidenceLabel.text = "-- %"
         }
     }
-    
-//    func showResults(objectLabel: String, confidence: VNConfidence) {
-//        DispatchQueue.main.sync {
-//            self.labelLabel.text = objectLabel
-//            
-//            self.confidenceLabel.text = "\(round(confidence * 100)) %"
-//        }
-//    }
-    
-    func showResults(objectLabel: String, confidence: VNConfidence) {
-        DispatchQueue.main.sync {
-            self.labelLabel.text = objectLabel
-            self.confidenceLabel.text = "\(round(confidence * 100)) %"
-            
-            // Check if the object label has changed and if enough time has passed since the last speech
-            let currentTime = Date()
-            let timeInterval = currentTime.timeIntervalSince(lastSpokenTime)
-            
-            if objectLabel != lastSpokenLabel && timeInterval > 1.0 { // Adjust time interval as needed (e.g., 1 second)
-                // Update the last spoken label and time
-                lastSpokenLabel = objectLabel
-                lastSpokenTime = currentTime
-                
-                // Stop any ongoing speech synthesis
-                if self.synthesizer.isSpeaking {
-                    self.synthesizer.stopSpeaking(at: .immediate)
-                }
-                
-                // Text-to-speech for object label
-                let utterance = AVSpeechUtterance(string: objectLabel)
-                utterance.voice = AVSpeechSynthesisVoice(language: "en-US") // Set the language
-                utterance.rate = AVSpeechUtteranceDefaultSpeechRate // Adjust the speech rate if needed
-                
-                // Speak the object label
-                self.synthesizer.speak(utterance)
-            }
-        }
-    }
-    
 }
 
 // MARK: - 📏(Performance Measurement) Delegate
 extension LiveImageViewController: 📏Delegate {
     func updateMeasure(inferenceTime: Double, executionTime: Double, fps: Int) {
-        //print(executionTime, fps)
-        self.inferenceLabel.text = "inference: \(Int(inferenceTime*1000.0)) mm"
-        self.etimeLabel.text = "execution: \(Int(executionTime*1000.0)) mm"
-        self.fpsLabel.text = "fps: \(fps)"
+        DispatchQueue.main.async {
+            self.inferenceLabel.text = "inference: \(Int(inferenceTime*1000.0)) ms"
+            self.etimeLabel.text = "execution: \(Int(executionTime*1000.0)) ms"
+            self.fpsLabel.text = "fps: \(fps)"
+        }
     }
 }
